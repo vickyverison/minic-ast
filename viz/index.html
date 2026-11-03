@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MiniC AST Viewer</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 24px; color: #172033; }
+    svg { width: 100%; min-height: 420px; border: 1px solid #ccd3df; background: #f8fafc; }
+    line { stroke: #73819a; stroke-width: 2; }
+    rect { fill: #dceafe; stroke: #3867a8; stroke-width: 2; rx: 10; }
+    text { font: 13px system-ui, sans-serif; text-anchor: middle; dominant-baseline: middle; }
+    .hint { color: #526078; }
+  </style>
+</head>
+<body>
+  <h1>MiniC: візуалізація AST</h1>
+  <p class="hint">Завантажте JSON-файл синтаксичного дерева для візуалізації.</p>
+  <input id="file" type="file" accept=".json,application/json">
+  <p id="status" class="hint"></p>
+  <svg id="tree" role="img" aria-label="Дерево AST"></svg>
+
+  <script>
+    const fileInput = document.getElementById("file");
+    const svg = document.getElementById("tree");
+    const status = document.getElementById("status");
+    const ns = "http://www.w3.org/2000/svg";
+
+    function label(node) {
+      if (node.type === "Number") return `Number: ${node.value}`;
+      if (node.name) return `${node.type}: ${node.name}`;
+      if (node.op) return `${node.type}: ${node.op}`;
+      return node.type;
+    }
+
+    function element(name, attrs) {
+      const item = document.createElementNS(ns, name);
+      for (const [key, value] of Object.entries(attrs)) {
+        item.setAttribute(key, value);
+      }
+      return item;
+    }
+
+    function render(root) {
+      svg.replaceChildren();
+
+      let cursor = 90;
+      const positions = [];
+
+      function place(node, depth) {
+        const children = node.children || [];
+        const childPositions = children.map(child => place(child, depth + 1));
+
+        let x;
+        if (childPositions.length === 0) {
+          x = cursor;
+          cursor += 190;
+        } else {
+          x = (childPositions[0].x +
+               childPositions[childPositions.length - 1].x) / 2;
+        }
+
+        const point = { node, x, y: 65 + depth * 95 };
+        positions.push(point);
+        return point;
+      }
+
+      place(root, 0);
+      const byNode = new Map(positions.map(point => [point.node, point]));
+
+      function drawLinks(node) {
+        const parent = byNode.get(node);
+        for (const child of node.children || []) {
+          const childPoint = byNode.get(child);
+          svg.appendChild(element("line", {
+            x1: parent.x, y1: parent.y + 23,
+            x2: childPoint.x, y2: childPoint.y - 23
+          }));
+          drawLinks(child);
+        }
+      }
+
+      drawLinks(root);
+
+      for (const point of positions) {
+        const group = element("g", {});
+        group.appendChild(element("rect", {
+          x: point.x - 78, y: point.y - 23, width: 156, height: 46
+        }));
+
+        const text = element("text", { x: point.x, y: point.y });
+        text.textContent = label(point.node);
+        group.appendChild(text);
+        svg.appendChild(group);
+      }
+
+      const width = Math.max(cursor, 320);
+      const height = Math.max(420, ...positions.map(p => p.y + 90));
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.style.height = `${height}px`;
+      status.textContent = `Вузлів: ${positions.length}`;
+    }
+
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      try {
+        const tree = JSON.parse(await file.text());
+        render(tree);
+      } catch (error) {
+        status.textContent = `Не вдалося прочитати JSON: ${error.message}`;
+        svg.replaceChildren();
+      }
+    });
+  </script>
+</body>
+</html>
